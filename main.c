@@ -32,6 +32,8 @@
 
 #define TTL_V 3.3
 #define DAC_SIZE 4096
+#define TO_MICRO_TESLA 1000000
+
 
 /*
 Author: Ryan Main		Date: 26/03/2017
@@ -210,7 +212,7 @@ char UART1_Getchar(void)
 }
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with ‚Äú/0‚Äù.
+Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with ì/0î.
 */
 void UART1_Putstring(char x[])
 {
@@ -297,11 +299,11 @@ int convertVotagetoDAC(double Vout)
 	return DACOut;
 }
 
-int axisController(double kd, double kp, double ki, double* err, double* integral, double ts, double SS, double T[], double b, int* state) {
+int axisController(double kd, double kp, double ki, double* err, double* integral, double ts, double SS, double T[], int* state) {
 	double out;
 	int DACOut;
 	*integral = *integral + (ts*(SS - (T[1] + T[0]) / 2));
-	*err = (b*SS - T[1]);
+	*err = (SS - T[1]);
 	out = ((*err)*kp) + ((*integral)*ki) + (((T[1] - T[0]) / ts)*kd);
 	DACOut = convertVotagetoDAC(out);
 
@@ -314,8 +316,8 @@ int axisController(double kd, double kp, double ki, double* err, double* integra
 			GPIOD_PTOR|=0x6;
 		}
 	}
-	else
-	{
+		else
+		{
 		if (*state != 0)
 		{
 			*state = 0;
@@ -389,10 +391,51 @@ void getField(char x[]){
 
 int main(void)
 {
+	double kp = 2500, kd =100, ki = 33750000;
+	double err = 0, integral = 0;
+	double ts = 1; //sample time
+	double xaxis[2];
+	double SS = 0;
+	int state = 0;
+	int DACOUT[2]={0,0};
 	char x[4], y[4], z[4];
 	char fieldx[10], fieldy[10], fieldz[10];
 	float fx, fy, fz;
 	Init();
+
+	GPIOD_PTOR|=0x4;
+
+	UART1_Putchar('1');
+	getField(x);
+	getField(y);
+	getField(z);
+
+	fx = byteArrayToFloat(x)/10;
+	ftoa(fieldx, fx);
+
+	fy = byteArrayToFloat(y)/10;
+	ftoa(fieldy, fy);
+
+	fz = byteArrayToFloat(z)/10;
+	ftoa(fieldz, fz);
+
+	UART0_Putstring("X-Field: ");
+	UART0_Putstring(fieldx);
+	UART0_Putstring("uT, ");
+
+	UART0_Putstring("Y-Field: ");
+	UART0_Putstring(fieldy);
+	UART0_Putstring("uT ");
+
+	UART0_Putstring("Z-Field: ");
+	UART0_Putstring(fieldz);
+	UART0_Putstring("uT\n\n\r");
+
+	fx=fx/TO_MICRO_TESLA;
+	fy=fy/TO_MICRO_TESLA;
+	fz=fz/TO_MICRO_TESLA;
+
+	xaxis[0]=fx;
 
 	while(1){
 		UART1_Putchar('1');
@@ -420,10 +463,20 @@ int main(void)
 		UART0_Putstring("Z-Field: ");
 		UART0_Putstring(fieldz);
 		UART0_Putstring("uT\n\n\r");
-    
-		RTC_wait(1);
+
+		fx=fx/TO_MICRO_TESLA;
+		fy=fy/TO_MICRO_TESLA;
+		fz=fz/TO_MICRO_TESLA;
+
+		xaxis[1]=fx;
+
+		DACOUT[0]=DACOUT[1];
+		DACOUT[1]=axisController(kd, kp, ki, &err, &integral, ts, SS, xaxis, &state);
+		DAC0_DAT0L = (DACOUT[1] & 0x0FF);
+		DAC0_DAT0H = (DACOUT[1] & 0x0F00);
+		xaxis[0]=xaxis[1];
+
+		//RTC_wait(1);
 	}
   	return 0;
 }
-
-
