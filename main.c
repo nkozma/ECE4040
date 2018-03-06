@@ -111,8 +111,8 @@ void RTC_wait(int twait)
 }
 
 
-Author: Nicholas Kozma, Ben West	Date: 09/02/2018
-Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interfacing
+/*Author: Nicholas Kozma, Ben West	Date: 09/02/2018
+Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interfacing*/
  void UART0_Interface_Init()
  {
  	SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
