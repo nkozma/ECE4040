@@ -29,9 +29,10 @@
  */
 
 #include "fsl_device_registers.h"
+
 #define TTL_V 3.3
 #define DAC_SIZE 4096
-#define OA_GAIN 10
+
 /*
 Author: Ryan Main		Date: 26/03/2017
 DAC initialization
@@ -101,7 +102,8 @@ int RTC_rtime(void)
 Author: Nicholas Kozma		Date: 26/03/2017
 Waits for the elapsed number of seconds (twait). Uses the RTC module
 */
- RTC_wait(int twait)
+
+void RTC_wait(int twait)
 {
 	int tw=twait+1; //wait for the elapsed time
 	RTCreset(); //prepare RTC
@@ -111,6 +113,58 @@ Waits for the elapsed number of seconds (twait). Uses the RTC module
 /*
 Author: Nicholas Kozma, Ben West	Date: 09/02/2018
 Initializes the UART4 for 9600 baud rate and no parity. Used for terminal interfacing
+ void UART0_Interface_Init()
+ {
+ 	SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
+ 	SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK;
+
+ 	PORTB_PCR16 |= PORT_PCR_MUX(3); //rx
+ 	PORTB_PCR17 |= PORT_PCR_MUX(3); //tx
+
+ 	UART0_C2 &= ~(UART_C2_TE_MASK|UART_C2_RE_MASK);
+
+ 	UART0_C1=0x00;
+
+ 	UART0_BDH=0;
+ 	UART0_BDL=0x88;
+
+ 	UART0_C2 |= UART_C2_TE_MASK;
+ 	UART0_C2 |= UART_C2_RE_MASK;
+ }
+
+ void UART0_Putchar(char x)
+ {
+ 	while(!(UART0_S1 & UART_S1_TDRE_MASK));
+
+ 	UART0_D = x;
+ }
+
+ void UART0_Putstring(char x[])
+ {
+ 	int n=0;
+
+ 	while(x[n]!='\0')
+ 	{
+ 		UART0_Putchar(x[n]);
+ 		n=n+1;
+ 	}
+ }
+
+ char UART0_Getchar(void)
+ {
+ 	char x;
+
+ 	while(!(UART0_S1 & UART_S1_RDRF_MASK));
+
+ 	x=UART0_D;
+ 	return x;
+ }
+*/
+
+/*
+Author: Nicholas Kozma, Ben West	Date: 09/02/2018
+Initializes the UART1 for 9600 baud rate and no parity.
+Sets: PTC3=RX PTC4=TX
 */
 void UART1_Interface_Init()
 {
@@ -156,7 +210,7 @@ char UART1_Getchar(void)
 }
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with ì/0î.
+Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with ‚Äú/0‚Äù.
 */
 void UART1_Putstring(char x[])
 {
@@ -184,17 +238,43 @@ void HBridgeDriver(void)
 	GPIOD_PDDR |= 0x0E; //set port D1, D2, and D3 to output
 }
 
+
+float byteArrayToFloat(char c[]){
+	float *f;
+
+	f = c;
+
+	return *f;
+}
+
+void I2C_init(void){
+	SIM_SCGC4 |= SIM_SCGC4_I2C0_MASK;
+
+	PORTE_PCR24 |= PORT_PCR_MUX(5); //E24 = SCL
+	PORTE_PCR25 |= PORT_PCR_MUX(5); //E25 = SDA
+
+	I2C0_C1 |= I2C_C1_IICEN_MASK;
+	I2C0_C1 |= I2C_C1_MST_MASK;
+
+	I2C0_A1 = 0xC6 << 1;	//sets slave address
+	I2C0_F = 0x14; 			//sets frequency
+}
+
+void I2C_writebyte(char addr, char databyte){
+
+}
+
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
 Call all initialization modules
 */
 void Init (void)
 {
-	UART1_Interface_Init();
-	RTC_init();
-	DAC0_init();
-	HBridgeDriver();
-
+  UART1_Interface_Init(); //communication with MBed
+	UART0_Interface_Init(); //communication with PC
+	RTC_init();  //allows waiting
+	DAC0_init(); //not used for test
+	HBridgeDriver(); //not used for test
 }
 
 void safetyDACOut(int* output)
@@ -248,61 +328,102 @@ int axisController(double kd, double kp, double ki, double* err, double* integra
 	return DACOut;
 	}
 
+int intToStr(int x, char c[], int i){
+	char temp;
+
+	if(x > 0){
+		while(x > 0){
+			c[i++] = (x % 10) + '0';
+			x = x / 10;
+		}
+		if(i > 1){
+			temp = c[i-2];
+			c[i-2] = c[i-1];
+			c[i-1] = temp;
+		}
+	}
+	else{
+		x = -x;
+		c[i++] = '-';
+		while(x > 0){
+			c[i++] = (x % 10) + '0';
+			x = x / 10;
+		}
+		if(i > 1){
+			temp = c[i-2];
+			c[i-2] = c[i-1];
+			c[i-1] = temp;
+		}
+	}
+
+	return i;
+}
+
+void ftoa(char c[], float f){
+	int iPart = (int)f;
+	float fPart = f - (float)iPart;
+	int i = 0;
+
+	i = intToStr(iPart, c, i);
+
+	c[i++] = '.';
+
+	if(fPart > 0){
+		fPart = fPart * 100;
+	}
+	else{
+		fPart = -fPart * 100;
+	}
+
+	i = intToStr((int)fPart, c, i);
+
+	c[i++] = '\0';
+}
+
+void getField(char x[]){
+	x[0] = UART1_Getchar();
+	x[1] = UART1_Getchar();
+	x[2] = UART1_Getchar();
+	x[3] = UART1_Getchar();
+}
+
 int main(void)
 {
-	double kp = 117000 / OA_GAIN, kd = 0.0017 / OA_GAIN, ki = 20.1767 / OA_GAIN;
-	double b = 0.000164;
-	double err = 0, integral = 0;
-	double ts = 1;
-	double SS = 0;
-	double T[] = { -65 * 0.000001, -65 * 0.000001, -50 * 0.000001, -40 * 0.000001, -20 * 0.000001, -10 * 0.000001, 100* 0.000001, 200*0.000001, 0 };
-	double temp[2];
-	int it;
-	int state = 0;
-	int DACOut=0;
+	char x[4], y[4], z[4];
+	char fieldx[10], fieldy[10], fieldz[10];
+	float fx, fy, fz;
 	Init();
 
-	GPIOD_PTOR|=0x4;
+	while(1){
+		UART1_Putchar('1');
+		getField(x);
+		getField(y);
+		getField(z);
 
-	// for test code D1 and D2 used. Let D1 be on in1 and d2 on in2.
-	/*GPIOD_PTOR|=0x2; //set ptd1 to high*/
+		fx = byteArrayToFloat(x)/10;
+		ftoa(fieldx, fx);
 
-	DAC0_DAT0L=(0x8C);
-	DAC0_DAT0H=(0xA);
+		fy = byteArrayToFloat(y)/10;
+		ftoa(fieldy, fy);
 
-	/*DAC0_DAT0L=(0x08);
-	DAC0_DAT0H=(0x7);
+		fz = byteArrayToFloat(z)/10;
+		ftoa(fieldz, fz);
 
-	DAC0_DAT0L=(0x84);
-	DAC0_DAT0H=(0x3);
+		UART0_Putstring("X-Field: ");
+		UART0_Putstring(fieldx);
+		UART0_Putstring("uT, ");
 
-	DAC0_DAT0L=(0x00);
-	DAC0_DAT0H=(0x0);
+		UART0_Putstring("Y-Field: ");
+		UART0_Putstring(fieldy);
+		UART0_Putstring("uT ");
 
-	GPIOD_PTOR|=0x6;
-
-	DAC0_DAT0L=(0x8C);
-	DAC0_DAT0H=(0xA);
-
-	DAC0_DAT0L=(0x84);
-	DAC0_DAT0H=(0x3);
-
-	DAC0_DAT0L=(0x08);
-	DAC0_DAT0H=(0x7);
-
-	DAC0_DAT0L=(0x8C);
-	DAC0_DAT0H=(0xA);*/
-
-	for (it = 1; it < 9; it++)
-		{
-			temp[0] = T[it - 1];
-			temp[1] = T[it];
-			DACOut=axisController(kd, kp, ki, &err, &integral, ts, SS, temp, b, &state);
-			DAC0_DAT0L = (DACOut & 0x0FF);
-			DAC0_DAT0H = (DACOut & 0x0F00);
-
-		}
-	return 0;
+		UART0_Putstring("Z-Field: ");
+		UART0_Putstring(fieldz);
+		UART0_Putstring("uT\n\n\r");
+    
+		RTC_wait(1);
+	}
+  	return 0;
 }
 
 
