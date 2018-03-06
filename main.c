@@ -30,6 +30,9 @@
 
 #include "fsl_device_registers.h"
 
+#define TTL_V 3.3
+#define DAC_SIZE 4096
+
 /*
 Author: Ryan Main		Date: 26/03/2017
 DAC initialization
@@ -99,13 +102,17 @@ int RTC_rtime(void)
 Author: Nicholas Kozma		Date: 26/03/2017
 Waits for the elapsed number of seconds (twait). Uses the RTC module
 */
- void RTC_wait(int twait)
+
+void RTC_wait(int twait)
 {
 	int tw=twait+1; //wait for the elapsed time
 	RTCreset(); //prepare RTC
 	while (RTC_rtime() <tw); //wait
 }
 
+/*
+Author: Nicholas Kozma, Ben West	Date: 09/02/2018
+Initializes the UART4 for 9600 baud rate and no parity. Used for terminal interfacing
  void UART0_Interface_Init()
  {
  	SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
@@ -152,6 +159,7 @@ Waits for the elapsed number of seconds (twait). Uses the RTC module
  	x=UART0_D;
  	return x;
  }
+*/
 
 /*
 Author: Nicholas Kozma, Ben West	Date: 09/02/2018
@@ -202,7 +210,7 @@ char UART1_Getchar(void)
 }
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with “/0”.
+Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with â€œ/0â€.
 */
 void UART1_Putstring(char x[])
 {
@@ -229,6 +237,7 @@ void HBridgeDriver(void)
 
 	GPIOD_PDDR |= 0x0E; //set port D1, D2, and D3 to output
 }
+
 
 float byteArrayToFloat(char c[]){
 	float *f;
@@ -261,13 +270,63 @@ Call all initialization modules
 */
 void Init (void)
 {
-	//UART1_Interface_Init(); //communication with MBed
-	//UART0_Interface_Init(); //communication with PC
-	//RTC_init();  //allows waiting
-	//DAC0_init(); //not used for test
-	//HBridgeDriver(); //not used for test
-	I2C_init();
+  UART1_Interface_Init(); //communication with MBed
+	UART0_Interface_Init(); //communication with PC
+	RTC_init();  //allows waiting
+	DAC0_init(); //not used for test
+	HBridgeDriver(); //not used for test
 }
+
+void safetyDACOut(int* output)
+{
+	if (*output > 4096||*output<-4096)
+	{
+		*output = 4096;
+	}
+}
+
+int convertVotagetoDAC(double Vout)
+{
+	int DACOut = (int)(Vout * DAC_SIZE / TTL_V);
+
+	if ((Vout * DAC_SIZE / TTL_V) - DACOut > 0.5)
+	{
+		DACOut = DACOut + 1;
+	}
+
+	return DACOut;
+}
+
+int axisController(double kd, double kp, double ki, double* err, double* integral, double ts, double SS, double T[], double b, int* state) {
+	double out;
+	int DACOut;
+	*integral = *integral + (ts*(SS - (T[1] + T[0]) / 2));
+	*err = (b*SS - T[1]);
+	out = ((*err)*kp) + ((*integral)*ki) + (((T[1] - T[0]) / ts)*kd);
+	DACOut = convertVotagetoDAC(out);
+
+	if (DACOut < 0)
+	{
+		DACOut = -1 * DACOut;
+		if ((*state != 1))
+		{
+			*state = 1;
+			GPIOD_PTOR|=0x6;
+		}
+	}
+	else
+	{
+		if (*state != 0)
+		{
+			*state = 0;
+			GPIOD_PTOR|=0x6;
+		}
+	}
+
+	safetyDACOut(&DACOut);
+
+	return DACOut;
+	}
 
 int intToStr(int x, char c[], int i){
 	char temp;
@@ -335,9 +394,7 @@ int main(void)
 	float fx, fy, fz;
 	Init();
 
-
-	return 0;
-	/*while(1){
+	while(1){
 		UART1_Putchar('1');
 		getField(x);
 		getField(y);
@@ -363,9 +420,10 @@ int main(void)
 		UART0_Putstring("Z-Field: ");
 		UART0_Putstring(fieldz);
 		UART0_Putstring("uT\n\n\r");
-
-		RTC_wait(5);
-	}*/
+    
+		RTC_wait(1);
+	}
+  	return 0;
 }
 
 
