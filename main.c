@@ -30,11 +30,6 @@
 
 #include "fsl_device_registers.h"
 
-#define TTL_V 3.3
-#define DAC_SIZE 4096
-#define TO_MICRO_TESLA 1000000
-
-
 /*
 Author: Ryan Main		Date: 26/03/2017
 DAC initialization
@@ -104,17 +99,13 @@ int RTC_rtime(void)
 Author: Nicholas Kozma		Date: 26/03/2017
 Waits for the elapsed number of seconds (twait). Uses the RTC module
 */
-
-void RTC_wait(int twait)
+ void RTC_wait(int twait)
 {
 	int tw=twait+1; //wait for the elapsed time
 	RTCreset(); //prepare RTC
 	while (RTC_rtime() <tw); //wait
 }
 
-
-/*Author: Nicholas Kozma, Ben West	Date: 09/02/2018
-Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interfacing*/
  void UART0_Interface_Init()
  {
  	SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
@@ -161,7 +152,6 @@ Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interf
  	x=UART0_D;
  	return x;
  }
-
 
 /*
 Author: Nicholas Kozma, Ben West	Date: 09/02/2018
@@ -240,7 +230,6 @@ void HBridgeDriver(void)
 	GPIOD_PDDR |= 0x0E; //set port D1, D2, and D3 to output
 }
 
-
 float byteArrayToFloat(char c[]){
 	float *f;
 
@@ -249,86 +238,18 @@ float byteArrayToFloat(char c[]){
 	return *f;
 }
 
-void I2C_init(void){
-	SIM_SCGC4 |= SIM_SCGC4_I2C0_MASK;
-
-	PORTE_PCR24 |= PORT_PCR_MUX(5); //E24 = SCL
-	PORTE_PCR25 |= PORT_PCR_MUX(5); //E25 = SDA
-
-	I2C0_C1 |= I2C_C1_IICEN_MASK;
-	I2C0_C1 |= I2C_C1_MST_MASK;
-
-	I2C0_A1 = 0xC6 << 1;	//sets slave address
-	I2C0_F = 0x14; 			//sets frequency
-}
-
-void I2C_writebyte(char addr, char databyte){
-
-}
-
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
 Call all initialization modules
 */
 void Init (void)
 {
-  UART1_Interface_Init(); //communication with MBed
+	UART1_Interface_Init(); //communication with MBed
 	UART0_Interface_Init(); //communication with PC
 	RTC_init();  //allows waiting
-	DAC0_init(); //not used for test
-	HBridgeDriver(); //not used for test
+	//DAC0_init(); //not used for test
+	//HBridgeDriver(); //not used for test
 }
-
-void safetyDACOut(int* output)
-{
-	if (*output > 4096||*output<-4096)
-	{
-		*output = 4096;
-	}
-}
-
-int convertVotagetoDAC(double Vout)
-{
-	int DACOut = (int)(Vout * DAC_SIZE / TTL_V);
-
-	if ((Vout * DAC_SIZE / TTL_V) - DACOut > 0.5)
-	{
-		DACOut = DACOut + 1;
-	}
-
-	return DACOut;
-}
-
-int axisController(double kd, double kp, double ki, double* err, double* integral, double ts, double SS, double T[], int* state) {
-	double out;
-	int DACOut;
-	*integral = *integral + (ts*(SS - (T[1] + T[0]) / 2));
-	*err = (SS - T[1]);
-	out = ((*err)*kp) + ((*integral)*ki) + (((T[1] - T[0]) / ts)*kd);
-	DACOut = convertVotagetoDAC(out);
-
-	if (DACOut < 0)
-	{
-		DACOut = -1 * DACOut;
-		if ((*state != 1))
-		{
-			*state = 1;
-			GPIOD_PTOR|=0x6;
-		}
-	}
-		else
-		{
-		if (*state != 0)
-		{
-			*state = 0;
-			GPIOD_PTOR|=0x6;
-		}
-	}
-
-	safetyDACOut(&DACOut);
-
-	return DACOut;
-	}
 
 int intToStr(int x, char c[], int i){
 	char temp;
@@ -391,51 +312,13 @@ void getField(char x[]){
 
 int main(void)
 {
-	double kp = 2500, kd =100, ki = 33750000;
-	double err = 0, integral = 0;
-	double ts = 1; //sample time
-	double xaxis[2];
-	double SS = 0;
-	int state = 0;
-	int DACOUT[2]={0,0};
 	char x[4], y[4], z[4];
 	char fieldx[10], fieldy[10], fieldz[10];
 	float fx, fy, fz;
+
 	Init();
 
-	GPIOD_PTOR|=0x4;
-
-	UART1_Putchar('1');
-	getField(x);
-	getField(y);
-	getField(z);
-
-	fx = byteArrayToFloat(x)/10;
-	ftoa(fieldx, fx);
-
-	fy = byteArrayToFloat(y)/10;
-	ftoa(fieldy, fy);
-
-	fz = byteArrayToFloat(z)/10;
-	ftoa(fieldz, fz);
-
-	UART0_Putstring("X-Field: ");
-	UART0_Putstring(fieldx);
-	UART0_Putstring("uT, ");
-
-	UART0_Putstring("Y-Field: ");
-	UART0_Putstring(fieldy);
-	UART0_Putstring("uT ");
-
-	UART0_Putstring("Z-Field: ");
-	UART0_Putstring(fieldz);
-	UART0_Putstring("uT\n\n\r");
-
-	fx=fx/TO_MICRO_TESLA;
-	fy=fy/TO_MICRO_TESLA;
-	fz=fz/TO_MICRO_TESLA;
-
-	xaxis[0]=fx;
+	RTC_wait(5);
 
 	while(1){
 		UART1_Putchar('1');
@@ -452,6 +335,7 @@ int main(void)
 		fz = byteArrayToFloat(z)/10;
 		ftoa(fieldz, fz);
 
+		/*
 		UART0_Putstring("X-Field: ");
 		UART0_Putstring(fieldx);
 		UART0_Putstring("uT, ");
@@ -463,20 +347,9 @@ int main(void)
 		UART0_Putstring("Z-Field: ");
 		UART0_Putstring(fieldz);
 		UART0_Putstring("uT\n\n\r");
-
-		fx=fx/TO_MICRO_TESLA;
-		fy=fy/TO_MICRO_TESLA;
-		fz=fz/TO_MICRO_TESLA;
-
-		xaxis[1]=fx;
-
-		DACOUT[0]=DACOUT[1];
-		DACOUT[1]=axisController(kd, kp, ki, &err, &integral, ts, SS, xaxis, &state);
-		DAC0_DAT0L = (DACOUT[1] & 0x0FF);
-		DAC0_DAT0H = (DACOUT[1] & 0x0F00);
-		xaxis[0]=xaxis[1];
-
-		//RTC_wait(1);
+		*/
+		//RTC_wait(5);
 	}
-  	return 0;
 }
+
+
