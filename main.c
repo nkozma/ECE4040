@@ -327,13 +327,14 @@ void Init (void)
 	DAC0_init(); //not used for test
 	HBridgeDriver(); //not used for test
 	FTM_init();
+	init_I2C();
 }
 
 void safetyDACOut(int* output)
 {
-	if (*output > 4096||*output<-4096)
+	if (*output > 4095||*output<-4095)
 	{
-		*output = 4096;
+		*output = 4095;
 	}
 }
 
@@ -438,13 +439,27 @@ void getField(char x[]){
 	x[3] = UART1_Getchar();
 }
 
+int get_Directions(double reading,double goal)
+{
+	if ((goal-reading)<0)
+		{
+			GPIOD_PTOR|=0x6;
+			return 1;
+		}		
+	else
+		{
+			return 0;
+		}
+}
+
+
 int main(void)
 {
 	double kix = 8450000;
 	double integralx = 0;
 	double ts = (double)1/(double)1000; //sample time
 	double xaxis[2];
-	double SSx = 35/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
+	double SSx = 0/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
 	int DACOUTx = 0;
 	int statex = 0; //current output state 0=+x, 1=-x
 	int FTM_Flag;
@@ -454,7 +469,10 @@ int main(void)
 	float fx, fy, fz;
 	Init();
 
-	/*RTC_wait(5);
+	DAC0_DAT0L = (0xFF);
+	DAC0_DAT0H = (0xF);
+
+	RTC_wait(5);
 
 	GPIOD_PTOR|=0x4;
 
@@ -476,13 +494,10 @@ int main(void)
 	fy=fy/TO_MICRO_TESLA;
 	fz=fz/TO_MICRO_TESLA;
 
-	xaxis[0]=fx;*/
-
+	xaxis[0]=fy;
+	statex=get_Directions(xaxis[0],SSx);
+	
 	while(1){
-		FTM_Flag = FTM_delay(500);
-	}
-
-	/*while(1){
 		UART1_Putchar('1');
 		getField(x);
 		getField(y);
@@ -513,14 +528,16 @@ int main(void)
 		fy=fy/TO_MICRO_TESLA;
 		fz=fz/TO_MICRO_TESLA;
 
-		xaxis[1]=fx;
+		xaxis[1]=fy;
 
 		DACOUTx=axisController(kix, &integralx, ts, SSx, xaxis, &statex);
-		DAC0_DAT0L = (DACOUTx & 0x0FF);
-		DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
+		//DAC0_DAT0L = (DACOUTx & 0x0FF);
+		//DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
+
 		xaxis[0]=xaxis[1];
 
-		//RTC_wait(1);
-	}*/
+		FTM_Flag = FTM_delay(1000);
+	}
+
   	return 0;
 }
