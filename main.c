@@ -33,7 +33,60 @@
 #define TTL_V 3.3
 #define DAC_SIZE 4096
 #define TO_MICRO_TESLA 1000000
+#define CLOCKF 21 //MHz
 
+/*
+Authors: Nicholas Kozma, Ryan Main		Date: 07/03/2018
+Notes:
+	Sets up FTM
+*/
+void FTM_init(void)
+{
+	/*Enable port B, multiplex the timer into port B*/
+	SIM_SCGC5 |= 0x01<<10; //enable port B
+	PORTB_PCR18 &= ~(PORT_PCR_MUX(7));  //multiplex the FTM0_CH0 to port B18
+	PORTB_PCR18 |= PORT_PCR_MUX(3);
+	/*Turn on the timer*/
+	SIM_SCGC6 |= 0x01<<26;
+
+	/*Set up the timer*/
+	FTM2_C0SC|=(0x01<<4); //set channel 0 of the flex timer module to output compare mode
+	FTM2_C0SC|=(0x01<<2); //set C0 of FTM0 to toggle on match
+
+	FTM2_MODE|=0x1<<2; //disable write protection
+	FTM2_SC|=FTM_SC_CLKS(0x1);
+	FTM2_SC|=FTM_SC_PS(0x7); //set the readings to be taken from the system clock (50 MHz) at 128 division
+}
+
+/*
+Author: Nicholas Kozma, Ryan Main		Date: 07/03/2018
+Inputs: time to delay in microseconds
+Outputs: success(0)/error(1) state
+Notes:
+	Algorithm uses the system clock (21 MHz) this must be defined
+with the name "CLOCKF" at some point as 50000000
+	The algorithm reads once every 128 periods, meaning that
+the minimum time detectable is 2.56 micro seconds
+	Maximum time is ~0.1677696 seconds
+	Outputs a toggling waveform for testing purposes from pin A2
+*/
+int FTM_delay(int t)
+{
+	int uCount;
+	uCount=(int)t*CLOCKF/128; //convert the time to wait to a usable form
+
+	if(uCount>0xffff)
+	{
+		return(1); //return error, out of range
+	}
+
+	FTM2_CNT=0; // clear the counter, not required if 1st init
+	FTM2_C0V=uCount; //set toggle match to converted input value
+
+	while(uCount>=FTM2_CNT); //wait for duration
+
+	return(0); //success!
+}
 
 /*
 Author: Ryan Main		Date: 26/03/2017
@@ -249,7 +302,7 @@ float byteArrayToFloat(char c[]){
 	return *f;
 }
 
-void I2C_init(void){
+/*void I2C_init(void){
 	SIM_SCGC4 |= SIM_SCGC4_I2C0_MASK;
 
 	PORTE_PCR24 |= PORT_PCR_MUX(5); //E24 = SCL
@@ -260,11 +313,7 @@ void I2C_init(void){
 
 	I2C0_A1 = 0xC6 << 1;	//sets slave address
 	I2C0_F = 0x14; 			//sets frequency
-}
-
-void I2C_writebyte(char addr, char databyte){
-
-}
+}*/
 
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
@@ -272,18 +321,20 @@ Call all initialization modules
 */
 void Init (void)
 {
-  UART1_Interface_Init(); //communication with MBed
+	UART1_Interface_Init(); //communication with MBed
 	UART0_Interface_Init(); //communication with PC
 	RTC_init();  //allows waiting
 	DAC0_init(); //not used for test
 	HBridgeDriver(); //not used for test
+	FTM_init();
+	init_I2C();
 }
 
 void safetyDACOut(int* output)
 {
-	if (*output > 4096||*output<-4096)
+	if (*output > 4095||*output<-4095)
 	{
-		*output = 4096;
+		*output = 4095;
 	}
 }
 
@@ -388,20 +439,40 @@ void getField(char x[]){
 	x[3] = UART1_Getchar();
 }
 
+int get_Directions(double reading,double goal)
+{
+	if ((goal-reading)<0)
+		{
+			GPIOD_PTOR|=0x6;
+			return 1;
+		}		
+	else
+		{
+			return 0;
+		}
+}
+
+
 int main(void)
 {
-	double kix = 8450000
+	double kix = 8450000;
 	double integralx = 0;
-	double ts = 1; //sample time
+	double ts = (double)1/(double)1000; //sample time
 	double xaxis[2];
-	double SSx = 35/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
-	DACOUTx=0;
+	double SSx = 0/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
+	int DACOUTx = 0;
 	int statex = 0; //current output state 0=+x, 1=-x
+	int FTM_Flag;
 
 	char x[4], y[4], z[4];
 	char fieldx[10], fieldy[10], fieldz[10];
 	float fx, fy, fz;
 	Init();
+
+	DAC0_DAT0L = (0xFF);
+	DAC0_DAT0H = (0xF);
+
+	RTC_wait(5);
 
 	GPIOD_PTOR|=0x4;
 
@@ -419,24 +490,13 @@ int main(void)
 	fz = byteArrayToFloat(z)/10;
 	ftoa(fieldz, fz);
 
-	UART0_Putstring("X-Field: ");
-	UART0_Putstring(fieldx);
-	UART0_Putstring("uT, ");
-
-	UART0_Putstring("Y-Field: ");
-	UART0_Putstring(fieldy);
-	UART0_Putstring("uT ");
-
-	UART0_Putstring("Z-Field: ");
-	UART0_Putstring(fieldz);
-	UART0_Putstring("uT\n\n\r");
-
 	fx=fx/TO_MICRO_TESLA;
 	fy=fy/TO_MICRO_TESLA;
 	fz=fz/TO_MICRO_TESLA;
 
-	xaxis[0]=fx;
-
+	xaxis[0]=fy;
+	statex=get_Directions(xaxis[0],SSx);
+	
 	while(1){
 		UART1_Putchar('1');
 		getField(x);
@@ -468,14 +528,16 @@ int main(void)
 		fy=fy/TO_MICRO_TESLA;
 		fz=fz/TO_MICRO_TESLA;
 
-		xaxis[1]=fx;
+		xaxis[1]=fy;
 
 		DACOUTx=axisController(kix, &integralx, ts, SSx, xaxis, &statex);
 		DAC0_DAT0L = (DACOUTx & 0x0FF);
 		DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
+
 		xaxis[0]=xaxis[1];
 
-		//RTC_wait(1);
+		FTM_Flag = FTM_delay(1000);
 	}
+
   	return 0;
 }
