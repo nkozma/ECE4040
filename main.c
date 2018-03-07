@@ -212,7 +212,7 @@ char UART1_Getchar(void)
 }
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with “/0”.
+Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with â€œ/0â€.
 */
 void UART1_Putstring(char x[])
 {
