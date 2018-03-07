@@ -265,7 +265,7 @@ char UART1_Getchar(void)
 }
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with “/0”.
+Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with â€œ/0â€.
 */
 void UART1_Putstring(char x[])
 {
@@ -531,8 +531,8 @@ int main(void)
 		xaxis[1]=fy;
 
 		DACOUTx=axisController(kix, &integralx, ts, SSx, xaxis, &statex);
-		//DAC0_DAT0L = (DACOUTx & 0x0FF);
-		//DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
+		DAC0_DAT0L = (DACOUTx & 0x0FF);
+		DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
 
 		xaxis[0]=xaxis[1];
 
