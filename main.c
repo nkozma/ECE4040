@@ -212,7 +212,7 @@ char UART1_Getchar(void)
 }
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with ‚Äú/0‚Äù.
+Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with ì/0î.
 */
 void UART1_Putstring(char x[])
 {
@@ -388,15 +388,46 @@ void getField(char x[]){
 	x[3] = UART1_Getchar();
 }
 
+/*
+Get directions for field excitation based on desired parameters
+0 is +
+1 is -
+[0] is x
+[1] is y
+[2] is z
+*/
+int get_Directions(double reading,double goal)
+{
+	if ((goal-reading)<0)
+		{
+			GPIOD_PTOR|=0x4;
+			return 1;
+		}		
+	else
+		{
+			return 0;
+		}
+}
+
+geterror(double err[],double axisreading[][]);
+{
+	int i;
+	for(i=0; i<3 ;i++)
+	{
+		err[i]=axisreading[i][1]-axisreading[i][0];
+	}
+}
+
 int main(void)
 {
-	double kix = 8450000
-	double integralx = 0;
+	double ki[] = {8450000,8450000,8450000}
+	double integral[] = {0,0,0};
 	double ts = 1; //sample time
-	double xaxis[2];
-	double SSx = 35/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
-	DACOUTx=0;
-	int statex = 0; //current output state 0=+x, 1=-x
+	double axisreading [3][2];
+	double goal[3] = {35/TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
+	DACOUT[3]={0,0,0};
+	int state[3]; //current output state 0=+x, 1=-x
+	double err[3];
 
 	char x[4], y[4], z[4];
 	char fieldx[10], fieldy[10], fieldz[10];
@@ -435,8 +466,14 @@ int main(void)
 	fy=fy/TO_MICRO_TESLA;
 	fz=fz/TO_MICRO_TESLA;
 
-	xaxis[0]=fx;
+	axisreading[0][0]=fx;
+	axisreading[1][0]=fy;
+	axisreading[2][0]=fz;
 
+	state[0]=get_Directions(axisreading[0][0],goal[0]);
+	state[1]=get_Directions(axisreading[1][0],goal[1]);
+	state[2]=get_Directions(axisreading[2][0],goal[2]);
+	
 	while(1){
 		UART1_Putchar('1');
 		getField(x);
@@ -468,13 +505,13 @@ int main(void)
 		fy=fy/TO_MICRO_TESLA;
 		fz=fz/TO_MICRO_TESLA;
 
-		xaxis[1]=fx;
+		axisreading[0][1]=fx;
 
-		DACOUTx=axisController(kix, &integralx, ts, SSx, xaxis, &statex);
-		DAC0_DAT0L = (DACOUTx & 0x0FF);
-		DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
-		xaxis[0]=xaxis[1];
-
+		DACOUT[0]=axisController(ki[0], &integral[0], ts, goal[0], axisreading[0], &state[0]);
+		DAC0_DAT0L = (DACOUT[0] & 0x0FF);
+		DAC0_DAT0H = ((DACOUT[0] & 0x0F00)>>8);
+		axisreading[0][0]=axisreading[0][1];
+		geterror(err,axisreading);
 		//RTC_wait(1);
 	}
   	return 0;
