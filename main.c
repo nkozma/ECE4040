@@ -299,12 +299,11 @@ int convertVotagetoDAC(double Vout)
 	return DACOut;
 }
 
-int axisController(double kd, double kp, double ki, double* err, double* integral, double ts, double SS, double T[], int* state) {
+int axisController(double ki, double* integral, double ts, double SS, double Bn[], int* state) {
 	double out;
 	int DACOut;
-	*integral = *integral + (ts*(SS - (T[1] + T[0]) / 2));
-	*err = (SS - T[1]);
-	out = ((*err)*kp) + ((*integral)*ki) + (((T[1] - T[0]) / ts)*kd);
+	*integral = *integral + (ts*(SS - (Bn[1] + Bn[0]) / 2));
+	out = ((*integral)*ki);
 	DACOut = convertVotagetoDAC(out);
 
 	if (DACOut < 0)
@@ -391,13 +390,14 @@ void getField(char x[]){
 
 int main(void)
 {
-	double kp = 2500, kd =100, ki = 33750000;
-	double err = 0, integral = 0;
+	double kix = 8450000
+	double integralx = 0;
 	double ts = 1; //sample time
 	double xaxis[2];
-	double SS = 0;
-	int state = 0;
-	int DACOUT[2]={0,0};
+	double SSx = 35/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
+	DACOUTx=0;
+	int statex = 0; //current output state 0=+x, 1=-x
+
 	char x[4], y[4], z[4];
 	char fieldx[10], fieldy[10], fieldz[10];
 	float fx, fy, fz;
@@ -470,10 +470,9 @@ int main(void)
 
 		xaxis[1]=fx;
 
-		DACOUT[0]=DACOUT[1];
-		DACOUT[1]=axisController(kd, kp, ki, &err, &integral, ts, SS, xaxis, &state);
-		DAC0_DAT0L = (DACOUT[1] & 0x0FF);
-		DAC0_DAT0H = (DACOUT[1] & 0x0F00);
+		DACOUTx=axisController(kix, &integralx, ts, SSx, xaxis, &statex);
+		DAC0_DAT0L = (DACOUTx & 0x0FF);
+		DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
 		xaxis[0]=xaxis[1];
 
 		//RTC_wait(1);
