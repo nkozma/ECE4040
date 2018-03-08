@@ -302,19 +302,6 @@ float byteArrayToFloat(char c[]){
 	return *f;
 }
 
-/*void I2C_init(void){
-	SIM_SCGC4 |= SIM_SCGC4_I2C0_MASK;
-
-	PORTE_PCR24 |= PORT_PCR_MUX(5); //E24 = SCL
-	PORTE_PCR25 |= PORT_PCR_MUX(5); //E25 = SDA
-
-	I2C0_C1 |= I2C_C1_IICEN_MASK;
-	I2C0_C1 |= I2C_C1_MST_MASK;
-
-	I2C0_A1 = 0xC6 << 1;	//sets slave address
-	I2C0_F = 0x14; 			//sets frequency
-}*/
-
 /*
 Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
 Call all initialization modules
@@ -439,7 +426,13 @@ void getField(char x[]){
 	x[3] = UART1_Getchar();
 }
 
-int get_Directions(double reading,double goal)
+
+/*
+Get directions for field excitation based on desired parameters
+0 is +
+1 is -
+*/
+int get_Directions(double reading, double goal)
 {
 	if ((goal-reading)<0)
 		{
@@ -452,26 +445,31 @@ int get_Directions(double reading,double goal)
 		}
 }
 
+geterror(double err[],double axisreading[][]);
+{
+	int i;
+	for(i=0; i<3 ;i++)
+	{
+		err[i]=axisreading[i][1]-axisreading[i][0];
+	}
+}
 
 int main(void)
 {
-	double kix = 8450000;
-	double integralx = 0;
+	double ki[] = {8450000,8450000,8450000}
+	double integral[] = {0,0,0};
 	double ts = (double)1/(double)1000; //sample time
-	double xaxis[2];
-	double SSx = 0/TO_MICRO_TESLA; //desired steady state x in this case 35 uT.
-	int DACOUTx = 0;
-	int statex = 0; //current output state 0=+x, 1=-x
-	int FTM_Flag;
-
+	double axisreading [3][2];
+	double goal[3] = {35/TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
+	DACOUT[3]={0,0,0};
+	int state[3]; //current output state 0=+x, 1=-x
+	double err[3];
+  int FTM_Flag;
 	char x[4], y[4], z[4];
 	char fieldx[10], fieldy[10], fieldz[10];
 	float fx, fy, fz;
-	Init();
-
-	DAC0_DAT0L = (0xFF);
-	DAC0_DAT0H = (0xF);
-
+	
+  Init();
 	RTC_wait(5);
 
 	GPIOD_PTOR|=0x4;
@@ -494,7 +492,15 @@ int main(void)
 	fy=fy/TO_MICRO_TESLA;
 	fz=fz/TO_MICRO_TESLA;
 
-	xaxis[0]=fy;
+	axisreading[0][0]=fx;
+	axisreading[1][0]=fy;
+	axisreading[2][0]=fz;
+
+	state[0]=get_Directions(axisreading[0][0],goal[0]);
+	state[1]=get_Directions(axisreading[1][0],goal[1]);
+	state[2]=get_Directions(axisreading[2][0],goal[2]);
+
+	xaxis[0]=fy; //testing
 	statex=get_Directions(xaxis[0],SSx);
 	
 	while(1){
@@ -528,16 +534,16 @@ int main(void)
 		fy=fy/TO_MICRO_TESLA;
 		fz=fz/TO_MICRO_TESLA;
 
-		xaxis[1]=fy;
+		axisreading[0][1]=fx;
 
-		DACOUTx=axisController(kix, &integralx, ts, SSx, xaxis, &statex);
-		DAC0_DAT0L = (DACOUTx & 0x0FF);
-		DAC0_DAT0H = ((DACOUTx & 0x0F00)>>8);
+		DACOUT[0]=axisController(ki[0], &integral[0], ts, goal[0], axisreading[0], &state[0]);
+		DAC0_DAT0L = (DACOUT[0] & 0x0FF);
+		DAC0_DAT0H = ((DACOUT[0] & 0x0F00)>>8);
+		axisreading[0][0]=axisreading[0][1];
+		geterror(err,axisreading);
 
-		xaxis[0]=xaxis[1];
 
 		FTM_Flag = FTM_delay(1000);
 	}
-
-  	return 0;
+  return 0;
 }
