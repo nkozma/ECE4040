@@ -29,277 +29,94 @@
  */
 
 #include "fsl_device_registers.h"
+#include "i2c.h"
+#include "4040.h"
 
-#define TTL_V 3.3
-#define DAC_SIZE 4096
-#define TO_MICRO_TESLA 1000000
-#define CLOCKF 21 //MHz
 
-/*
-Authors: Nicholas Kozma, Ryan Main		Date: 07/03/2018
-Notes:
-	Sets up FTM
-*/
-void FTM_init(void)
+void readFields(double axisReading[][2], int N)
 {
-	/*Enable port B, multiplex the timer into port B*/
-	SIM_SCGC5 |= 0x01<<10; //enable port B
-	PORTB_PCR18 &= ~(PORT_PCR_MUX(7));  //multiplex the FTM0_CH0 to port B18
-	PORTB_PCR18 |= PORT_PCR_MUX(3);
-	/*Turn on the timer*/
-	SIM_SCGC6 |= 0x01<<26;
+	float fx, fy, fz;
+	char x[4], y[4], z[4];
 
-	/*Set up the timer*/
-	FTM2_C0SC|=(0x01<<4); //set channel 0 of the flex timer module to output compare mode
-	FTM2_C0SC|=(0x01<<2); //set C0 of FTM0 to toggle on match
+	UART1_Putchar('1');
+	getField(x);
+	getField(y);
+	getField(z);
 
-	FTM2_MODE|=0x1<<2; //disable write protection
-	FTM2_SC|=FTM_SC_CLKS(0x1);
-	FTM2_SC|=FTM_SC_PS(0x7); //set the readings to be taken from the system clock (50 MHz) at 128 division
+	fx = byteArrayToFloat(x)/(10*TO_MICRO_TESLA);
+	fy = byteArrayToFloat(y)/(10*TO_MICRO_TESLA);
+	fz = byteArrayToFloat(z)/(10*TO_MICRO_TESLA);
+
+	axisReading[0][N] = (double)fx;
+	axisReading[1][N] = (double)fy;
+	axisReading[2][N] = (double)fz;
 }
 
 /*
-Author: Nicholas Kozma, Ryan Main		Date: 07/03/2018
-Inputs: time to delay in microseconds
-Outputs: success(0)/error(1) state
-Notes:
-	Algorithm uses the system clock (21 MHz) this must be defined
-with the name "CLOCKF" at some point as 50000000
-	The algorithm reads once every 128 periods, meaning that
-the minimum time detectable is 2.56 micro seconds
-	Maximum time is ~0.1677696 seconds
-	Outputs a toggling waveform for testing purposes from pin A2
-*/
-int FTM_delay(int t)
+ * State 0 means IN12=10 is positive direction
+ * State 1 means IN12=01 is positive direction
+ * */
+void Direction_Determination(double field [][2], int state[])
 {
-	int uCount;
-	uCount=(int)t*CLOCKF/128; //convert the time to wait to a usable form
-
-	if(uCount>0xffff)
+	int i=0;
+	for(i=0;i<3;i++){
+	if(field[i][0]<field[i][1])
 	{
-		return(1); //return error, out of range
+		state[i]=1;
 	}
-
-	FTM2_CNT=0; // clear the counter, not required if 1st init
-	FTM2_C0V=uCount; //set toggle match to converted input value
-
-	while(uCount>=FTM2_CNT); //wait for duration
-
-	return(0); //success!
-}
-
-/*
-Author: Ryan Main		Date: 26/03/2017
-DAC initialization
-Initializes the DAC to be output to DAC0.
-*/
-void DAC0_init(void)
-{
-	SIM_SCGC2 |= SIM_SCGC2_DAC0_MASK; //enable DAC0
-	DAC0_C0 |= DAC_C0_DACEN_MASK; //enable DAC0
-	//DAC0_C0 |= DAC_C0_DACTRGSEL_MASK; //select software trigger for DAC
-	DAC0_C0 |= DAC_C0_DACRFS_MASK; //select DACREF_2
-}
-
-/*
-Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Initializes the RTC. Turns on crystal oscillator
-*/
-void RTC_init(void)
-{
-	int n=0;
-	SIM_SCGC6|=SIM_SCGC6_RTC_MASK; //enable RTC output
-	RTC_CR|=RTC_CR_OSCE_MASK; //turn on oscillator
-	while(n<50){n=n+1;} //wait for startup
-	RTC_TSR=1; //reset TSR to reset TIF flag
-	RTC_SR|=RTC_SR_TCE(1); //reset TCE flag
-	RTC_IER&=~(0x7); // turn off interrupts
-}
-
-/*
-Author: Nicholas Kozma	Date: 26/03/2017
-Resets RTC TSR to 0. Re-initializes the RTC to same settings as init
-*/
-void RTCreset(void)
-{
-	int n=0;
-
-	RTC_CR|=1; //software reset
-	RTC_CR&=~(0x1);
-	RTC_CR|=RTC_CR_OSCE_MASK; //enable oscillator
-	while(n<50){n=n+1;}
-	RTC_TSR=1; //reset TIF
-	RTC_SR|=RTC_SR_TCE(1); //reset TCE flag
-	RTC_IER&=~(0x7); //disable interrupts
-}
-
-/*
-Author: Nicholas Kozma		Date: 26/03/2017
-Reads RTC TSR register. Use to avoid reading invalid times. Returns time as an integer
-*/
-int RTC_rtime(void)
-{
-	int timet1,timet2; //times for comparison
-	int flag=0; //flag for equivalence
-	while (flag==0)
+	else
 	{
-		timet1=RTC_TSR;
-		timet2=RTC_TSR;
-			if(timet1==timet2)
+		state[i]=0;
+	}
+	}
+}
+
+void Direction_Set(double field [][2], int state[],double SS[])
+{
+	int i;
+	for(i=0;i<3;i++)
+	{
+		if(state[i]==1)
+		{
+			if(SS[i]<field[i][0])
 			{
-				flag=1;
+				GPIOD_PTOR|=0x6;
 			}
-	}
-	return(timet2);
-}
-
-/*
-Author: Nicholas Kozma		Date: 26/03/2017
-Waits for the elapsed number of seconds (twait). Uses the RTC module
-*/
-
-void RTC_wait(int twait)
-{
-	int tw=twait+1; //wait for the elapsed time
-	RTCreset(); //prepare RTC
-	while (RTC_rtime() <tw); //wait
-}
-
-
-/*Author: Nicholas Kozma, Ben West	Date: 09/02/2018
-Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interfacing*/
- void UART0_Interface_Init()
- {
- 	SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
- 	SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK;
-
- 	PORTB_PCR16 |= PORT_PCR_MUX(3); //rx
- 	PORTB_PCR17 |= PORT_PCR_MUX(3); //tx
-
- 	UART0_C2 &= ~(UART_C2_TE_MASK|UART_C2_RE_MASK);
-
- 	UART0_C1=0x00;
-
- 	UART0_BDH=0;
- 	UART0_BDL=0x88;
-
- 	UART0_C2 |= UART_C2_TE_MASK;
- 	UART0_C2 |= UART_C2_RE_MASK;
- }
-
- void UART0_Putchar(char x)
- {
- 	while(!(UART0_S1 & UART_S1_TDRE_MASK));
-
- 	UART0_D = x;
- }
-
- void UART0_Putstring(char x[])
- {
- 	int n=0;
-
- 	while(x[n]!='\0')
- 	{
- 		UART0_Putchar(x[n]);
- 		n=n+1;
- 	}
- }
-
- char UART0_Getchar(void)
- {
- 	char x;
-
- 	while(!(UART0_S1 & UART_S1_RDRF_MASK));
-
- 	x=UART0_D;
- 	return x;
- }
-
-
-/*
-Author: Nicholas Kozma, Ben West	Date: 09/02/2018
-Initializes the UART1 for 9600 baud rate and no parity.
-Sets: PTC3=RX PTC4=TX
-*/
-void UART1_Interface_Init()
-{
-	SIM_SCGC4 |= SIM_SCGC4_UART1_MASK;
-	SIM_SCGC5 |= SIM_SCGC5_PORTC_MASK;
-
-	PORTC_PCR3 |= PORT_PCR_MUX(3);
-	PORTC_PCR4 |= PORT_PCR_MUX(3);
-
-	UART1_C2 &= ~(UART_C2_TE_MASK|UART_C2_RE_MASK);
-
-	UART1_C1=0x00;
-
-	UART1_BDH=0;
-	UART1_BDL=0x88;
-
-	UART1_C2 |= UART_C2_TE_MASK;
-	UART1_C2 |= UART_C2_RE_MASK;
-}
-
-/*
-Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Place a single character on the terminal from a keyboard. Must be fed a character
-*/
-void UART1_Putchar(char x)
-{
-	while(!(UART1_S1 & UART_S1_TDRE_MASK));
-
-	UART1_D = x;
-}
-/*
-Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Receives a character from a keyboard or other attachment. Returns the character received.
-*/
-char UART1_Getchar(void)
-{
-	char x;
-
-	while(!(UART1_S1 & UART_S1_RDRF_MASK));
-
-	x=UART1_D;
-	return x;
-}
-/*
-Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with “/0”.
-*/
-void UART1_Putstring(char x[])
-{
-	int n=0;
-
-	while(x[n]!='\0')
-	{
-		UART1_Putchar(x[n]);
-		n=n+1;
+			else if(SS[i]<field[i][1])
+			{
+				//error messages for deadzone
+			}
+		}
+		else
+		{
+			if(SS[i]>field[i][0])
+			{
+				GPIOD_PTOR|=0x6;
+			}
+			else if(SS[i]>field[i][1])
+			{
+				//error message for deadzone
+			}
+		}
 	}
 }
 
-/*
-Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
-Initialize the switch for interrupts and GPIO input. Additionally, starts LED.
-*/
-void HBridgeDriver(void)
-{
-	SIM_SCGC5 |= SIM_SCGC5_PORTD_MASK;
+void System_init(int state[], double SS[]){
 
-	PORTD_PCR2 |= PORT_PCR_MUX(1);
-	PORTD_PCR1 |= PORT_PCR_MUX(1);
-	PORTD_PCR3 |= PORT_PCR_MUX(1);
+	double axisreading [3][2];
 
-	GPIOD_PDDR |= 0x0E; //set port D1, D2, and D3 to output
-}
+	DAC0_DAT0L=(0x2F);
+	DAC0_DAT0H=(0x9);
+	GPIOD_PTOR|=0x4;
 
+	FTM_delay(2000);
+	readFields(axisreading,0);
+	GPIOD_PTOR|=0x6;
 
-float byteArrayToFloat(char c[]){
-	float *f;
-
-	f = c;
-
-	return *f;
+	FTM_delay(2000);
+	readFields(axisreading, 1);
+	Direction_Determination(axisreading,state);
+	Direction_Set(axisreading,state,SS);
 }
 
 /*
@@ -317,26 +134,6 @@ void Init (void)
 	init_I2C();
 }
 
-void safetyDACOut(int* output)
-{
-	if (*output > 4095||*output<-4095)
-	{
-		*output = 4095;
-	}
-}
-
-int convertVotagetoDAC(double Vout)
-{
-	int DACOut = (int)(Vout * DAC_SIZE / TTL_V);
-
-	if ((Vout * DAC_SIZE / TTL_V) - DACOut > 0.5)
-	{
-		DACOut = DACOut + 1;
-	}
-
-	return DACOut;
-}
-
 int axisController(double ki, double* integral, double ts, double SS, double Bn[], int* state) {
 	double out;
 	int DACOut;
@@ -344,7 +141,7 @@ int axisController(double ki, double* integral, double ts, double SS, double Bn[
 	out = ((*integral)*ki);
 	DACOut = convertVotagetoDAC(out);
 
-	if (DACOut < 0)
+	/*if (DACOut < 0)
 	{
 		DACOut = -1 * DACOut;
 		if ((*state != 1))
@@ -360,190 +157,95 @@ int axisController(double ki, double* integral, double ts, double SS, double Bn[
 			*state = 0;
 			GPIOD_PTOR|=0x6;
 		}
-	}
+	}*/
 
 	safetyDACOut(&DACOut);
 
 	return DACOut;
-	}
-
-int intToStr(int x, char c[], int i){
-	char temp;
-
-	if(x > 0){
-		while(x > 0){
-			c[i++] = (x % 10) + '0';
-			x = x / 10;
-		}
-		if(i > 1){
-			temp = c[i-2];
-			c[i-2] = c[i-1];
-			c[i-1] = temp;
-		}
-	}
-	else{
-		x = -x;
-		c[i++] = '-';
-		while(x > 0){
-			c[i++] = (x % 10) + '0';
-			x = x / 10;
-		}
-		if(i > 1){
-			temp = c[i-2];
-			c[i-2] = c[i-1];
-			c[i-1] = temp;
-		}
-	}
-
-	return i;
 }
 
-void ftoa(char c[], float f){
-	int iPart = (int)f;
-	float fPart = f - (float)iPart;
-	int i = 0;
-
-	i = intToStr(iPart, c, i);
-
-	c[i++] = '.';
-
-	if(fPart > 0){
-		fPart = fPart * 100;
-	}
-	else{
-		fPart = -fPart * 100;
-	}
-
-	i = intToStr((int)fPart, c, i);
-
-	c[i++] = '\0';
-}
-
-void getField(char x[]){
-	x[0] = UART1_Getchar();
-	x[1] = UART1_Getchar();
-	x[2] = UART1_Getchar();
-	x[3] = UART1_Getchar();
-}
-
-
-/*
-Get directions for field excitation based on desired parameters
-0 is +
-1 is -
-*/
-int get_Directions(double reading, double goal)
-{
-	if ((goal-reading)<0)
-		{
-			GPIOD_PTOR|=0x6;
-			return 1;
-		}		
-	else
-		{
-			return 0;
-		}
-}
-
-geterror(double err[],double axisreading[][]);
+void geterror(double err[], double axisreading[][2])
 {
 	int i;
 	for(i=0; i<3 ;i++)
 	{
-		err[i]=axisreading[i][1]-axisreading[i][0];
+		err[i] = axisreading[i][1]-axisreading[i][0];
 	}
+}
+
+
+void getStates(double reading[][2], double goal[], int state[]){
+	state[0]=get_Directions(reading[0][0],goal[0]);
+	state[1]=get_Directions(reading[1][0],goal[1]);
+	state[2]=get_Directions(reading[2][0],goal[2]);
+}
+
+void displayFields(double reading[][2], int N){
+	char fieldx[10], fieldy[10], fieldz[10];
+	float f[3];
+
+	for(int i = 0; i < 3; i++){
+		f[i] = (float)reading[i][N];
+	}
+
+	ftoa(fieldx, f[0]*TO_MICRO_TESLA);
+	ftoa(fieldy, f[1]*TO_MICRO_TESLA);
+	ftoa(fieldz, f[2]*TO_MICRO_TESLA);
+
+	UART0_Putstring("X-Field: ");
+	UART0_Putstring(fieldx);
+	UART0_Putstring("uT, ");
+
+	UART0_Putstring("Y-Field: ");
+	UART0_Putstring(fieldy);
+	UART0_Putstring("uT ");
+
+	UART0_Putstring("Z-Field: ");
+	UART0_Putstring(fieldz);
+	UART0_Putstring("uT\n\n\r");
 }
 
 int main(void)
 {
-	double ki[] = {8450000,8450000,8450000}
+	double ki[] = {8450000,8450000,8450000};
 	double integral[] = {0,0,0};
 	double ts = (double)1/(double)1000; //sample time
 	double axisreading [3][2];
-	double goal[3] = {35/TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
-	DACOUT[3]={0,0,0};
-	int state[3]; //current output state 0=+x, 1=-x
+	double goal[3] = {(double)65/(double)TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
+	int DACOUT[3]={0,0,0};
+	int state[3]={0,0,0}; //current output state 0=+x, 1=-x
 	double err[3];
-  int FTM_Flag;
-	char x[4], y[4], z[4];
-	char fieldx[10], fieldy[10], fieldz[10];
-	float fx, fy, fz;
-	
-  Init();
-	RTC_wait(5);
+	int FTM_Flag;
 
-	GPIOD_PTOR|=0x4;
+	Init();
+	System_init(state, goal);
+	RTC_wait(3);
 
-	UART1_Putchar('1');
-	getField(x);
-	getField(y);
-	getField(z);
+	//GPIOD_PTOR|=0x4;
 
-	fx = byteArrayToFloat(x)/10;
-	ftoa(fieldx, fx);
+	readFields(axisreading, 0);
+	//getStates(axisreading, goal, state);
 
-	fy = byteArrayToFloat(y)/10;
-	ftoa(fieldy, fy);
+	while(1)
+	{
+		readFields(axisreading, 1);
 
-	fz = byteArrayToFloat(z)/10;
-	ftoa(fieldz, fz);
-
-	fx=fx/TO_MICRO_TESLA;
-	fy=fy/TO_MICRO_TESLA;
-	fz=fz/TO_MICRO_TESLA;
-
-	axisreading[0][0]=fx;
-	axisreading[1][0]=fy;
-	axisreading[2][0]=fz;
-
-	state[0]=get_Directions(axisreading[0][0],goal[0]);
-	state[1]=get_Directions(axisreading[1][0],goal[1]);
-	state[2]=get_Directions(axisreading[2][0],goal[2]);
-
-	xaxis[0]=fy; //testing
-	statex=get_Directions(xaxis[0],SSx);
-	
-	while(1){
-		UART1_Putchar('1');
-		getField(x);
-		getField(y);
-		getField(z);
-
-		fx = byteArrayToFloat(x)/10;
-		ftoa(fieldx, fx);
-
-		fy = byteArrayToFloat(y)/10;
-		ftoa(fieldy, fy);
-
-		fz = byteArrayToFloat(z)/10;
-		ftoa(fieldz, fz);
-
-		UART0_Putstring("X-Field: ");
-		UART0_Putstring(fieldx);
-		UART0_Putstring("uT, ");
-
-		UART0_Putstring("Y-Field: ");
-		UART0_Putstring(fieldy);
-		UART0_Putstring("uT ");
-
-		UART0_Putstring("Z-Field: ");
-		UART0_Putstring(fieldz);
-		UART0_Putstring("uT\n\n\r");
-
-		fx=fx/TO_MICRO_TESLA;
-		fy=fy/TO_MICRO_TESLA;
-		fz=fz/TO_MICRO_TESLA;
-
-		axisreading[0][1]=fx;
+		displayFields(axisreading, 1);
 
 		DACOUT[0]=axisController(ki[0], &integral[0], ts, goal[0], axisreading[0], &state[0]);
+
 		DAC0_DAT0L = (DACOUT[0] & 0x0FF);
-		DAC0_DAT0H = ((DACOUT[0] & 0x0F00)>>8);
+		DAC0_DAT0H = ((DACOUT[0] >> 8) & 0xF);
+
 		axisreading[0][0]=axisreading[0][1];
+
 		geterror(err,axisreading);
 
-
 		FTM_Flag = FTM_delay(1000);
+		if(FTM_Flag)
+		{
+			//send FTM error
+		}
 	}
-  return 0;
+	return 0;
 }

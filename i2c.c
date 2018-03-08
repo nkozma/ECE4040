@@ -97,8 +97,6 @@ void Pause(void)
  */
 void I2CReadRegister(uint8_t Address, uint8_t SubAddress, uint8_t *dest)
 {
-	unsigned char result;
-
 	/* Send Slave Address */
 	I2C_StartTransmission(Address, MWSR);
 	i2c_Wait();
