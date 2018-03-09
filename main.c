@@ -32,6 +32,21 @@
 #include "i2c.h"
 #include "4040.h"
 
+void RTC_alarm_init(int alarm)
+{
+    int n=0;
+    SIM_SCGC6|=SIM_SCGC6_RTC_MASK; //enable RTC output
+    RTC_CR|=1; //software reset
+    RTC_CR&=~(0x1);
+    RTC_TSR=1; //reset TSR to reset TIF flag
+    RTC_CR|=RTC_CR_OSCE_MASK; //enable oscillator
+    while(n<50){n=n+1;}
+    RTC_TSR=1; //reset TSR to reset TIF flag
+    RTC_IER&=~(0x7); // turn off interrupts
+    RTC_TAR=alarm;
+    RTC_SR|=RTC_SR_TCE(1); //reset TCE flag
+}
+
 
 void readFields(double axisReading[][2], int N)
 {
@@ -58,6 +73,13 @@ void readFields(double axisReading[][2], int N)
  * */
 void Direction_Determination(double field [][2], int state[])
 {
+	double test[3][2];
+
+	for (int i=0;i<3;i++){
+		test[i][0] = field[i][0];
+		test[i][1] = field[i][1];
+	}
+
 	int i=0;
 	for(i=0;i<3;i++){
 	if(field[i][0]<field[i][1])
@@ -71,52 +93,82 @@ void Direction_Determination(double field [][2], int state[])
 	}
 }
 
-void Direction_Set(double field [][2], int state[],double SS[])
+void Direction_Set(double field [][2], int state[], double SS[])
 {
 	int i;
-	for(i=0;i<3;i++)
-	{
+
+	double test[3][2];
+
+	for (int i=0;i<3;i++){
+		test[i][0] = field[i][0];
+		test[i][1] = field[i][1];
+	}
+
+	i=0;
+
+	//for(i=0;i<3;i++)
+	//{
 		if(state[i]==1)
 		{
 			if(SS[i]<field[i][0])
 			{
-				GPIOD_PTOR|=0x6;
+				GPIOD_PCOR|=0x2;
+				GPIOD_PSOR|=0x4;
 			}
 			else if(SS[i]<field[i][1])
 			{
 				//error messages for deadzone
+			}
+			else
+			{
+				GPIOD_PCOR|=0x4;
+				GPIOD_PSOR|=0x2;
 			}
 		}
 		else
 		{
 			if(SS[i]>field[i][0])
 			{
-				GPIOD_PTOR|=0x6;
+				GPIOD_PCOR|=0x2;
+				GPIOD_PSOR|=0x4;
 			}
 			else if(SS[i]>field[i][1])
 			{
 				//error message for deadzone
 			}
+			else
+			{
+				GPIOD_PCOR|=0x4;
+				GPIOD_PSOR|=0x2;
+			}
 		}
-	}
+	//}
 }
 
-void System_init(int state[], double SS[]){
+void System_init(double startupReadings[][2], int state[], double SS[]){
 
-	double axisreading [3][2];
+	double test[3][2];
 
 	DAC0_DAT0L=(0x2F);
 	DAC0_DAT0H=(0x9);
-	GPIOD_PTOR|=0x4;
+	GPIOD_PCOR|=0x2;
+	GPIOD_PSOR|=0x4;
 
-	FTM_delay(2000);
-	readFields(axisreading,0);
-	GPIOD_PTOR|=0x6;
+	FTM_delay(30000);
+	readFields(startupReadings,0);
 
-	FTM_delay(2000);
-	readFields(axisreading, 1);
-	Direction_Determination(axisreading,state);
-	Direction_Set(axisreading,state,SS);
+	GPIOD_PCOR|=0x4;
+	GPIOD_PSOR|=0x2;
+	FTM_delay(30000);
+	readFields(startupReadings, 1);
+
+	for (int i=0;i<3;i++){
+		test[i][0] = startupReadings[i][0];
+		test[i][1] = startupReadings[i][1];
+	}
+
+	Direction_Determination(startupReadings,state);
+	Direction_Set(startupReadings,state,SS);
 }
 
 /*
@@ -210,21 +262,34 @@ int main(void)
 	double ki[] = {8450000,8450000,8450000};
 	double integral[] = {0,0,0};
 	double ts = (double)1/(double)1000; //sample time
-	double axisreading [3][2];
-	double goal[3] = {(double)65/(double)TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
+	double axisreading[3][2];
+	double goal[3] = {(double)70/(double)TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
 	int DACOUT[3]={0,0,0};
 	int state[3]={0,0,0}; //current output state 0=+x, 1=-x
 	double err[3];
+	double startupReadings[3][2];
 	int FTM_Flag;
 
 	Init();
-	System_init(state, goal);
-	RTC_wait(3);
 
-	//GPIOD_PTOR|=0x4;
+	/*DAC0_DAT0L=(0x2F);
+	DAC0_DAT0H=(0x9);
+	GPIOD_PCOR|=0x2;
+	GPIOD_PSOR|=0x4;
+
+	FTM_delay(15000);
+	readFields(axisreading, 0);
+
+	GPIOD_PCOR|=0x4;
+	GPIOD_PSOR|=0x2;
+	FTM_delay(15000);
+	readFields(axisreading, 1);*/
+
+	System_init(startupReadings, state, goal);
+	RTC_wait(2);
+	RTC_alarm_init(5);
 
 	readFields(axisreading, 0);
-	//getStates(axisreading, goal, state);
 
 	while(1)
 	{
@@ -246,6 +311,13 @@ int main(void)
 		{
 			//send FTM error
 		}
+
+		if((RTC_SR&RTC_SR_TAF_MASK))
+		{
+			goal[0] = (double)-117/(double)TO_MICRO_TESLA;
+			Direction_Set(startupReadings, state, goal);
+		}
 	}
+
 	return 0;
 }

@@ -12,6 +12,7 @@
 #define DAC_SIZE 4096
 #define TO_MICRO_TESLA 1000000
 #define CLOCKF 21 //MHz
+#define DAC_MIN_VOLTAGE 0x92F;
 
 void FTM_init(void);
 int FTM_delay(int t);
