@@ -35,6 +35,90 @@
 #include <string.h>
 int STAHP=0;
 
+/*Author: Nicholas Kozma, Ben West  Date: 09/02/2018
+Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interfacing*/
+ void UART0_Interface_Init()
+ {
+    SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
+    SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK;
+    PORTB_PCR16 |= PORT_PCR_MUX(3); //rx
+    PORTB_PCR17 |= PORT_PCR_MUX(3); //tx
+    UART0_C2 &= ~(UART_C2_TE_MASK|UART_C2_RE_MASK);
+    UART0_C1=0x00;
+    UART0_BDH=0;
+    UART0_BDL=0x88;
+    UART0_C2&=~(0x1<<UART_C2_RIE_SHIFT);
+    UART0_C2 |= UART_C2_TE_MASK;
+    UART0_C2 |= UART_C2_RE_MASK;
+ }
+ void UART0_Interface_INTERRUPT_Init()
+ {
+    SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
+    SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK;
+    PORTB_PCR16 |= PORT_PCR_MUX(3); //rx
+    PORTB_PCR17 |= PORT_PCR_MUX(3); //tx
+    //PORTB_PCR16 = PORT_PCR_ISF_MASK|PORT_PCR_MUX(3);
+    //PORTB_PCR17 = PORT_PCR_ISF_MASK|PORT_PCR_MUX(3);
+    UART0_C2 &= ~(UART_C2_TE_MASK|UART_C2_RE_MASK);
+    UART0_C1=0x00;
+    UART0_BDH=0;
+    UART0_BDL=0x88;
+    UART0_C2|=0x1<<UART_C2_RIE_SHIFT;
+    UART0_C5&=~(0x1<<UART_C5_RDMAS_SHIFT);
+    UART0_RWFIFO=0x1;
+    UART0_C2 |= UART_C2_TE_MASK;
+    UART0_C2 |= UART_C2_RE_MASK;
+    NVIC_EnableIRQ(UART0_RX_TX_IRQn);
+ }
+
+ /*
+ Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
+ Place a single character on the terminal from a keyboard. Must be fed a character
+ */
+ void UART0_Putchar(char x)
+ {
+ 	while(!(UART0_S1 & UART_S1_TDRE_MASK));
+
+ 	UART0_D = x;
+ }
+
+ /*
+ Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
+ Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with â€œ/0â€�.
+ */
+ void UART0_Putstring(char x[], int length)
+  {
+      int i;
+     for(i=0; i<length; i++)
+      {
+         UART0_Putchar(x[i]);
+     }
+  }
+
+ /*
+ Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
+ Receives a character from a keyboard or other attachment. Returns the character received.
+ */
+ char UART0_Getchar(void)
+ {
+ 	char x;
+
+ 	while(!(UART0_S1 & UART_S1_RDRF_MASK));
+
+ 	x=UART0_D;
+ 	return x;
+ }
+
+ void UART0_RX_TX_IRQHandler(void)
+  {
+      char info;
+      info=UART0_Getchar();
+      if(info=='S')
+      {
+     	 STAHP=1;
+      }
+  }
+
 void RTC_alarm_init(int alarm)
 {
     int n=0;
@@ -167,7 +251,7 @@ void Direction_Set(double field [][2], int state[], double SS[])
 			}
 }
 
-void System_init(double startupReadings[][2], int state[], double SS[])
+void System_init(double startupReadings[][2], int state[])
 {
 	I2CWriteDAC(DAC_MIN_VOLTAGE,DAC_MIN_VOLTAGE);
 
@@ -190,7 +274,6 @@ void System_init(double startupReadings[][2], int state[], double SS[])
 	readFields(startupReadings, 1);
 
 	Direction_Determination(startupReadings,state);
-	Direction_Set(startupReadings,state,SS);
 }
 
 /*
@@ -211,9 +294,6 @@ void Init (void)
 uint16_t axisController(double ki, double* integral, double ts, double SS, double Bn[], int* state) {
 	double out;
 	int DACOut;
-
-	double bn1test = Bn[1];
-	double bn0test = Bn[0];
 
 	*integral = *integral + (ts*(SS - (Bn[1] + Bn[0]) / 2));
 	out = ((*integral)*ki);
@@ -240,59 +320,118 @@ void getStates(double reading[][2], double goal[], int state[]){
 	state[2]=get_Directions(reading[2][0],goal[2]);
 }
 
-void displayFields(double reading[][2], int N){
-	char fieldx[10], fieldy[10], fieldz[10];
-	float f[3];
-
-	for(int i = 0; i < 3; i++){
-		f[i] = (float)reading[i][N];
-	}
-
-	ftoa(fieldx, f[0]*TO_MICRO_TESLA);
-	ftoa(fieldy, f[1]*TO_MICRO_TESLA);
-	ftoa(fieldz, f[2]*TO_MICRO_TESLA);
-
-	UART0_Putstring("X-Field: ");
-	UART0_Putstring(fieldx);
-	UART0_Putstring("uT, ");
-
-	UART0_Putstring("Y-Field: ");
-	UART0_Putstring(fieldy);
-	UART0_Putstring("uT ");
-
-	UART0_Putstring("Z-Field: ");
-	UART0_Putstring(fieldz);
-	UART0_Putstring("uT\n\n\r");
+void data_r(double desired[])
+{
+    int i,j;
+    char read[6];
+    for(i=0;i<4;i++)
+            {
+            for(j=0; j<5; j++)
+                {
+                    read[j]=UART0_Getchar();
+                }
+            read[5]='\0';
+            if(read[0]=='S')
+            {
+            	desired[0]=0;
+            	desired[1]=0;
+            	desired[2]=0;
+            	desired[3]=0;
+            	STAHP=1;
+            	break;
+            }
+            desired[i]=atof(read);
+            }
 }
+
+/*void error_s(double err[])
+{
+	 int c;
+	 char to_print[5];
+	 int i,j;
+	 for(i=0;i<3;i++)
+	 {
+		 c=(int)err[i];
+		 for(j=0;j<3;j++)
+		 {
+			 to_print[2-j]=(char)(c%10)+0x30;
+			 c=c/10;
+		 }
+
+		 to_print[3]='\n';
+		 to_print[4]='\r';
+
+		 UART0_Putstring(to_print, 5);
+	 }
+}*/
 
 int main(void)
 {
+	int looper=0;
+	int itr;
 	double ki[] = {8450000,8450000,8450000};
 	double integral[] = {0,0,0};
 	double ts = (double)1/(double)1000; //sample time
 	double axisreading[3][2];
-	double goal[3] = {(double)20/(double)TO_MICRO_TESLA,(double)0/(double)TO_MICRO_TESLA,0}; //desired steady state x in this case 35 uT.
+	double goal[4]; //desired steady state x in this case 35 uT.
 	uint16_t DACOUT[3]={0,0,0};
 	int state[3]={0,0,0}; //current output state 0=+x, 1=-x
 	double err[3];
 	double startupReadings[3][2];
+	char TYPE[2];
 	int FTM_Flag;
 
-	Init();
+    TYPE[0]='b';
+    TYPE[1]='b';
 
+    char msngr[3];
+
+    //system init
+	Init();
 	I2CWriteDAC(0x0,0x0);
 
-	System_init(startupReadings, state, goal);
+	System_init(startupReadings, state);
 	RTC_wait(2);
-	//RTC_alarm_init(5);
 
-	readFields(axisreading, 0);
+	//Gui stuff
+	TYPE[0]=UART0_Getchar();
+	if(TYPE[0]=='s')
+		    {
+		    	TYPE[1]=UART0_Getchar();
+		    	looper=0; //repeated data read
+		    }
+		    else
+		    {
+		    	UART0_Getchar();
+		        TYPE[1]='n';
+		        looper=1; //repeated data read
+		    }
 
-	while(1)
+
+	UART0_Interface_Init();
+	msngr[0]='d';
+	msngr[1]='\n';
+	msngr[2]='\r';
+	STAHP=0;
+
+	while(STAHP==0)
+	{
+		msngr[0]='d';
+		UART0_Putstring(msngr, (int)3);
+		data_r(goal);
+		RTC_alarm_init(goal[3]);
+		//start of control system
+		Direction_Set(startupReadings, state, goal);
+		for(itr=0;itr<3;itr++)
+		{
+			integral[itr] = 0;
+			err[itr] = 0;
+		}
+		readFields(axisreading, 0);
+		//looping crtl
+	while(!(RTC_SR & RTC_SR_TAF_MASK))
 	{
 		readFields(axisreading, 1);
-
-		displayFields(axisreading, 1);
 
 		DACOUT[0]=axisController(ki[0], &integral[0], ts, goal[0], axisreading[0], &state[0]);
 		DACOUT[1]=axisController(ki[1], &integral[1], ts, goal[1], axisreading[1], &state[1]);
@@ -309,15 +448,8 @@ int main(void)
 		{
 			//send FTM error
 		}
-
-		if((RTC_SR & RTC_SR_TAF_MASK))
-		{
-			goal[0] = (double)-65/(double)TO_MICRO_TESLA;
-			Direction_Set(startupReadings, state, goal);
-			integral[0] = 0;
-			err[0] = 0;
-			RTC_TAR=0xFFFF; //reset taf
-		}
+		//crtl system end
+	}
 	}
 
 	return 0;

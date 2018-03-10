@@ -137,67 +137,6 @@ void RTC_wait(int twait)
 	while (RTC_rtime() <tw); //wait
 }
 
-/*Author: Nicholas Kozma, Ben West	Date: 09/02/2018
-Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interfacing*/
- void UART0_Interface_Init()
- {
- 	SIM_SCGC4 |= SIM_SCGC4_UART0_MASK;
- 	SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK;
-
- 	PORTB_PCR16 |= PORT_PCR_MUX(3); //rx
- 	PORTB_PCR17 |= PORT_PCR_MUX(3); //tx
-
- 	UART0_C2 &= ~(UART_C2_TE_MASK|UART_C2_RE_MASK);
-
- 	UART0_C1=0x00;
-
- 	UART0_BDH=0;
- 	UART0_BDL=0x88;
-
- 	UART0_C2 |= UART_C2_TE_MASK;
- 	UART0_C2 |= UART_C2_RE_MASK;
- }
-
- /*
- Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
- Place a single character on the terminal from a keyboard. Must be fed a character
- */
- void UART0_Putchar(char x)
- {
- 	while(!(UART0_S1 & UART_S1_TDRE_MASK));
-
- 	UART0_D = x;
- }
-
- /*
- Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
- Uses UART4 to iteratively put all the characters in a string to a terminal. Input an array terminated with â€œ/0â€�.
- */
- void UART0_Putstring(char x[])
- {
- 	int n=0;
-
- 	while(x[n]!='\0')
- 	{
- 		UART0_Putchar(x[n]);
- 		n=n+1;
- 	}
- }
-
- /*
- Author: Nicholas Kozma, Ryan Main		Date: 26/03/2017
- Receives a character from a keyboard or other attachment. Returns the character received.
- */
- char UART0_Getchar(void)
- {
- 	char x;
-
- 	while(!(UART0_S1 & UART_S1_RDRF_MASK));
-
- 	x=UART0_D;
- 	return x;
- }
-
  /*
  Author: Nicholas Kozma, Ben West	Date: 09/02/2018
  Initializes the UART1 for 9600 baud rate and no parity.
