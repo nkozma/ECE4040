@@ -35,6 +35,8 @@
 
 #include "fsl_device_registers.h"
 
+#define DACADDR 0x60
+
 #define i2c_DisableAck()		I2C1_C1 |= I2C_C1_TXAK_MASK
 
 #define i2c_RepeatedStart()		I2C1_C1 |= I2C_C1_RSTA_MASK;
@@ -61,5 +63,6 @@ void I2C_StartTransmission(uint8_t Address, uint8_t Mode);
 void I2CWriteRegister(uint8_t Address, uint8_t SubAddress, uint8_t u8Data);
 void I2CReadRegister(uint8_t Address, uint8_t SubAddress, uint8_t *dest);
 void I2CReadMultiRegisters(uint8_t Address, uint8_t SubAddress, uint8_t bytes, uint8_t *dest);
+void I2CWriteDAC(uint16_t C1_out, uint16_t C2_out);
 
 #endif		/* __I2C_H */

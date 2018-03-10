@@ -269,12 +269,17 @@ Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interf
  void HBridgeDriver(void)
  {
  	SIM_SCGC5 |= SIM_SCGC5_PORTD_MASK;
+ 	SIM_SCGC5 |= SIM_SCGC5_PORTC_MASK;
 
  	PORTD_PCR2 |= PORT_PCR_MUX(1);
  	PORTD_PCR1 |= PORT_PCR_MUX(1);
  	PORTD_PCR3 |= PORT_PCR_MUX(1);
 
+ 	PORTC_PCR0 |= PORT_PCR_MUX(1);
+ 	PORTC_PCR1 |= PORT_PCR_MUX(1);
+
  	GPIOD_PDDR |= 0x0E; //set port D1, D2, and D3 to output
+ 	GPIOC_PDDR |= 0x03; //set port C0, C1 to output
  }
 
  /*
@@ -352,9 +357,9 @@ Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interf
 
  int DAC_DeadZone_Check(int* DACout)
  {
-     if(*DACout<0x92F)
+     if(*DACout<DAC_MIN_VOLTAGE)
      {
-         *DACout=0x92F;
+         *DACout=DAC_MIN_VOLTAGE;
          return 1; //return the error that we know is caused by the requirement to enter the deadzone.
      }
      return 0;
@@ -363,10 +368,16 @@ Initializes the UART0 for 9600 baud rate and no parity. Used for terminal interf
  void safetyDACOut(int* output)
  {
  	int deadZoneFlag = 0;
+
+ 	if(*output < 0){
+ 		*output = -1* *output;
+ 	}
+
 	if (*output > 4095||*output<-4095)
  	{
  		*output = 4095;
  	}
+
  	deadZoneFlag = DAC_DeadZone_Check(output);
  	if(deadZoneFlag)
  	{

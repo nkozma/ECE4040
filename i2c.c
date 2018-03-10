@@ -49,7 +49,6 @@ void init_I2C(void)
 
 	I2C1_F |= 0xD;					/* Baud = 390 kHz */
 	I2C1_C1 |= I2C_C1_IICEN_MASK;	/* enable I2C */
-	i2c_DisableAck();
 }
 
 /*
@@ -149,6 +148,33 @@ void I2CWriteRegister(uint8_t Address, uint8_t SubAddress, uint8_t u8Data)
 	i2c_Stop();
 
 	Pause();
+}
+
+void I2CWriteDAC(uint16_t C1_out, uint16_t C2_out)
+{
+	C1_out &= 0x0FFF;
+	C2_out &= 0x0FFF;
+
+	uint8_t addr = 0b11000000;
+
+	I2C_StartTransmission(DACADDR, MWSR);
+	//i2c_Start();
+	//i2c_write_byte(addr);
+	i2c_Wait();
+
+	i2c_write_byte((C1_out & 0xFF00) >> 8);
+	i2c_Wait();
+
+	i2c_write_byte(C1_out & 0xFF);
+	i2c_Wait();
+
+	i2c_write_byte((C2_out & 0xFF00) >> 8);
+	i2c_Wait();
+
+	i2c_write_byte(C2_out & 0xFF);
+	i2c_Wait();
+
+	i2c_Stop();
 }
 
 /*

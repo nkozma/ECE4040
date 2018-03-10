@@ -31,6 +31,9 @@
 #include "fsl_device_registers.h"
 #include "i2c.h"
 #include "4040.h"
+#include <stdlib.h>
+#include <string.h>
+int STAHP=0;
 
 void RTC_alarm_init(int alarm)
 {
@@ -73,99 +76,118 @@ void readFields(double axisReading[][2], int N)
  * */
 void Direction_Determination(double field [][2], int state[])
 {
-	double test[3][2];
-
-	for (int i=0;i<3;i++){
-		test[i][0] = field[i][0];
-		test[i][1] = field[i][1];
-	}
-
 	int i=0;
+
 	for(i=0;i<3;i++){
-	if(field[i][0]<field[i][1])
-	{
-		state[i]=1;
-	}
-	else
-	{
-		state[i]=0;
-	}
+		if(field[i][0]<field[i][1])
+		{
+			state[i]=1;
+		}
+		else
+		{
+			state[i]=0;
+		}
 	}
 }
 
 void Direction_Set(double field [][2], int state[], double SS[])
 {
-	int i;
+	int i=0;
 
-	double test[3][2];
-
-	for (int i=0;i<3;i++){
-		test[i][0] = field[i][0];
-		test[i][1] = field[i][1];
-	}
-
-	i=0;
-
-	//for(i=0;i<3;i++)
-	//{
-		if(state[i]==1)
+	if(state[i]==1)
+	{
+		if(SS[i]<field[i][0])
 		{
-			if(SS[i]<field[i][0])
-			{
-				GPIOD_PCOR|=0x2;
-				GPIOD_PSOR|=0x4;
-			}
-			else if(SS[i]<field[i][1])
-			{
-				//error messages for deadzone
-			}
-			else
-			{
-				GPIOD_PCOR|=0x4;
-				GPIOD_PSOR|=0x2;
-			}
+			GPIOD_PCOR|=0x2;
+			GPIOD_PSOR|=0x4;
+		}
+		else if(SS[i]<field[i][1])
+		{
+			//error messages for deadzone
 		}
 		else
 		{
-			if(SS[i]>field[i][0])
+			GPIOD_PCOR|=0x4;
+			GPIOD_PSOR|=0x2;
+		}
+	}
+	else
+	{
+		if(SS[i]>field[i][0])
+		{
+			GPIOD_PCOR|=0x2;
+			GPIOD_PSOR|=0x4;
+		}
+		else if(SS[i]>field[i][1])
+		{
+			//error message for deadzone
+		}
+		else
+		{
+			GPIOD_PCOR|=0x4;
+			GPIOD_PSOR|=0x2;
+		}
+	}
+
+	i++;
+
+	if(state[i]==1)
 			{
-				GPIOD_PCOR|=0x2;
-				GPIOD_PSOR|=0x4;
-			}
-			else if(SS[i]>field[i][1])
-			{
-				//error message for deadzone
+				if(SS[i]<field[i][0])
+				{
+					GPIOC_PCOR|=0x1;
+					GPIOC_PSOR|=0x2;
+				}
+				else if(SS[i]<field[i][1])
+				{
+					//error messages for deadzone
+				}
+				else
+				{
+					GPIOC_PCOR|=0x2;
+					GPIOC_PSOR|=0x1;
+				}
 			}
 			else
 			{
-				GPIOD_PCOR|=0x4;
-				GPIOD_PSOR|=0x2;
+				if(SS[i]>field[i][0])
+				{
+					GPIOC_PCOR|=0x1;
+					GPIOC_PSOR|=0x2;
+				}
+				else if(SS[i]>field[i][1])
+				{
+					//error message for deadzone
+				}
+				else
+				{
+					GPIOC_PCOR|=0x2;
+					GPIOC_PSOR|=0x1;
+				}
 			}
-		}
-	//}
 }
 
-void System_init(double startupReadings[][2], int state[], double SS[]){
+void System_init(double startupReadings[][2], int state[], double SS[])
+{
+	I2CWriteDAC(DAC_MIN_VOLTAGE,DAC_MIN_VOLTAGE);
 
-	double test[3][2];
-
-	DAC0_DAT0L=(0x2F);
-	DAC0_DAT0H=(0x9);
 	GPIOD_PCOR|=0x2;
 	GPIOD_PSOR|=0x4;
+
+	GPIOC_PCOR|=0x1;
+	GPIOC_PSOR|=0x2;
 
 	FTM_delay(30000);
 	readFields(startupReadings,0);
 
 	GPIOD_PCOR|=0x4;
 	GPIOD_PSOR|=0x2;
+
+	GPIOC_PCOR|=0x2;
+	GPIOC_PSOR|=0x1;
+
 	FTM_delay(30000);
 	readFields(startupReadings, 1);
-
-	for (int i=0;i<3;i++){
-		test[i][0] = startupReadings[i][0];
-		test[i][1] = startupReadings[i][1];
-	}
 
 	Direction_Determination(startupReadings,state);
 	Direction_Set(startupReadings,state,SS);
@@ -180,40 +202,26 @@ void Init (void)
 	UART1_Interface_Init(); //communication with MBed
 	UART0_Interface_Init(); //communication with PC
 	RTC_init();  //allows waiting
-	DAC0_init(); //not used for test
+	//DAC0_init(); //not used for test
 	HBridgeDriver(); //not used for test
 	FTM_init();
 	init_I2C();
 }
 
-int axisController(double ki, double* integral, double ts, double SS, double Bn[], int* state) {
+uint16_t axisController(double ki, double* integral, double ts, double SS, double Bn[], int* state) {
 	double out;
 	int DACOut;
+
+	double bn1test = Bn[1];
+	double bn0test = Bn[0];
+
 	*integral = *integral + (ts*(SS - (Bn[1] + Bn[0]) / 2));
 	out = ((*integral)*ki);
 	DACOut = convertVotagetoDAC(out);
 
-	/*if (DACOut < 0)
-	{
-		DACOut = -1 * DACOut;
-		if ((*state != 1))
-		{
-			*state = 1;
-			GPIOD_PTOR|=0x6;
-		}
-	}
-		else
-		{
-		if (*state != 0)
-		{
-			*state = 0;
-			GPIOD_PTOR|=0x6;
-		}
-	}*/
-
 	safetyDACOut(&DACOut);
 
-	return DACOut;
+	return (uint16_t)DACOut;
 }
 
 void geterror(double err[], double axisreading[][2])
@@ -263,8 +271,8 @@ int main(void)
 	double integral[] = {0,0,0};
 	double ts = (double)1/(double)1000; //sample time
 	double axisreading[3][2];
-	double goal[3] = {(double)70/(double)TO_MICRO_TESLA,0,0}; //desired steady state x in this case 35 uT.
-	int DACOUT[3]={0,0,0};
+	double goal[3] = {(double)20/(double)TO_MICRO_TESLA,(double)0/(double)TO_MICRO_TESLA,0}; //desired steady state x in this case 35 uT.
+	uint16_t DACOUT[3]={0,0,0};
 	int state[3]={0,0,0}; //current output state 0=+x, 1=-x
 	double err[3];
 	double startupReadings[3][2];
@@ -272,22 +280,11 @@ int main(void)
 
 	Init();
 
-	/*DAC0_DAT0L=(0x2F);
-	DAC0_DAT0H=(0x9);
-	GPIOD_PCOR|=0x2;
-	GPIOD_PSOR|=0x4;
-
-	FTM_delay(15000);
-	readFields(axisreading, 0);
-
-	GPIOD_PCOR|=0x4;
-	GPIOD_PSOR|=0x2;
-	FTM_delay(15000);
-	readFields(axisreading, 1);*/
+	I2CWriteDAC(0x0,0x0);
 
 	System_init(startupReadings, state, goal);
 	RTC_wait(2);
-	RTC_alarm_init(5);
+	//RTC_alarm_init(5);
 
 	readFields(axisreading, 0);
 
@@ -298,11 +295,12 @@ int main(void)
 		displayFields(axisreading, 1);
 
 		DACOUT[0]=axisController(ki[0], &integral[0], ts, goal[0], axisreading[0], &state[0]);
+		DACOUT[1]=axisController(ki[1], &integral[1], ts, goal[1], axisreading[1], &state[1]);
 
-		DAC0_DAT0L = (DACOUT[0] & 0x0FF);
-		DAC0_DAT0H = ((DACOUT[0] >> 8) & 0xF);
+		I2CWriteDAC(DACOUT[0],DACOUT[1]);
 
 		axisreading[0][0]=axisreading[0][1];
+		axisreading[1][0]=axisreading[1][1];
 
 		geterror(err,axisreading);
 
@@ -312,10 +310,13 @@ int main(void)
 			//send FTM error
 		}
 
-		if((RTC_SR&RTC_SR_TAF_MASK))
+		if((RTC_SR & RTC_SR_TAF_MASK))
 		{
-			goal[0] = (double)-117/(double)TO_MICRO_TESLA;
+			goal[0] = (double)-65/(double)TO_MICRO_TESLA;
 			Direction_Set(startupReadings, state, goal);
+			integral[0] = 0;
+			err[0] = 0;
+			RTC_TAR=0xFFFF; //reset taf
 		}
 	}
 
