@@ -288,7 +288,7 @@ void Init (void)
 	//DAC0_init(); //not used for test
 	HBridgeDriver(); //not used for test
 	FTM_init();
-	init_I2C();
+	//init_I2C();
 }
 
 uint16_t axisController(double ki, double* integral, double ts, double SS, double Bn[], int* state) {
@@ -304,12 +304,12 @@ uint16_t axisController(double ki, double* integral, double ts, double SS, doubl
 	return (uint16_t)DACOut;
 }
 
-void geterror(double err[], double axisreading[][2])
+void geterror(double err[], double axisreading[][2],double goal[])
 {
 	int i;
 	for(i=0; i<3 ;i++)
 	{
-		err[i] = axisreading[i][1]-axisreading[i][0];
+		err[i] = goal[i]-axisreading[i][1];
 	}
 }
 
@@ -344,7 +344,7 @@ void data_r(double desired[])
             }
 }
 
-/*void error_s(double err[])
+void error_s(double err[])
 {
 	 int c;
 	 char to_print[5];
@@ -363,7 +363,7 @@ void data_r(double desired[])
 
 		 UART0_Putstring(to_print, 5);
 	 }
-}*/
+}
 
 int main(void)
 {
@@ -388,9 +388,9 @@ int main(void)
 
     //system init
 	Init();
-	I2CWriteDAC(0x0,0x0);
+	//I2CWriteDAC(0x0,0x0);
 
-	System_init(startupReadings, state);
+	//System_init(startupReadings, state);
 	RTC_wait(2);
 
 	//Gui stuff
@@ -414,34 +414,42 @@ int main(void)
 	msngr[2]='\r';
 	STAHP=0;
 
-	while(STAHP==0)
+	while(1)
 	{
 		msngr[0]='d';
 		UART0_Putstring(msngr, (int)3);
 		data_r(goal);
+		if(STAHP==1)
+		{
+			break;
+		}
 		RTC_alarm_init(goal[3]);
+		msngr[0]='q';
 		//start of control system
-		Direction_Set(startupReadings, state, goal);
+		//Direction_Set(startupReadings, state, goal);
 		for(itr=0;itr<3;itr++)
 		{
 			integral[itr] = 0;
 			err[itr] = 0;
 		}
-		readFields(axisreading, 0);
+		//readFields(axisreading, 0);
 		//looping crtl
 	while(!(RTC_SR & RTC_SR_TAF_MASK))
 	{
-		readFields(axisreading, 1);
+		//readFields(axisreading, 1);
 
 		DACOUT[0]=axisController(ki[0], &integral[0], ts, goal[0], axisreading[0], &state[0]);
 		DACOUT[1]=axisController(ki[1], &integral[1], ts, goal[1], axisreading[1], &state[1]);
 
-		I2CWriteDAC(DACOUT[0],DACOUT[1]);
+		//I2CWriteDAC(DACOUT[0],DACOUT[1]);
 
 		axisreading[0][0]=axisreading[0][1];
 		axisreading[1][0]=axisreading[1][1];
 
-		geterror(err,axisreading);
+		geterror(err,axisreading,goal);
+		UART0_Putstring(msngr, 3);
+		error_s(err);
+
 
 		FTM_Flag = FTM_delay(1000);
 		if(FTM_Flag)
